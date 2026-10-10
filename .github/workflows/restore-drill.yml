@@ -1,0 +1,111 @@
+# Monthly restore drill (PLAN Task 13, ADR-0012): prove the latest backup
+# restores into a fresh Postgres and contains every project database.
+name: restore-drill
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  drill:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+        env:
+          POSTGRES_PASSWORD: drill   # throwaway container, never exposed
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      RESTIC_REPOSITORY: s3:https://${{ vars.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com/project-infra-backups
+      RESTIC_PASSWORD: ${{ secrets.RESTIC_PASSWORD }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+      HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+      PROJECTS: ${{ vars.PROJECTS }}
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: drill
+      MAX_AGE_HOURS: "48"
+    steps:
+      - name: Ping start
+        run: curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/restore-drill/start" || true
+
+      - name: Install restic and psql
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq restic postgresql-client
+
+      - name: Check latest snapshot age
+        run: |
+          restic snapshots --tag postgres --latest 1 --json > snaps.json
+          python3 - <<'PY'
+          import json, os, re, sys
+          from datetime import datetime, timezone
+          snaps = json.load(open("snaps.json"))
+          if not snaps:
+              sys.exit("no postgres snapshot found")
+          # restic: 2026-10-11T03:05:12.123456789+02:00 (nanoseconds, Z or offset)
+          base, tz = re.match(r"(.*T\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$", snaps[-1]["time"]).groups()
+          t = datetime.fromisoformat(base + ("+00:00" if tz == "Z" else tz))
+          age_h = (datetime.now(timezone.utc) - t).total_seconds() / 3600
+          print(f"latest snapshot {snaps[-1]['short_id']} is {age_h:.1f} h old")
+          if age_h > float(os.environ["MAX_AGE_HOURS"]):
+              sys.exit(f"latest snapshot older than {os.environ['MAX_AGE_HOURS']} h")
+          PY
+
+      - name: Restore latest dump
+        run: |
+          restic dump --tag postgres latest /pg_dumpall.sql > dump.sql
+          ls -lh dump.sql
+          # The dump recreates the `postgres` role, which already exists here;
+          # that single error is expected, everything else must succeed.
+          psql -d postgres -f dump.sql > restore.log 2> restore.err || true
+          grep -v 'role "postgres" already exists' restore.err > unexpected.err || true
+          if [ -s unexpected.err ]; then
+            head -n 20 unexpected.err
+            exit 1
+          fi
+
+      - name: Verify project databases
+        run: |
+          psql -d postgres -Atc "SELECT datname, pg_size_pretty(pg_database_size(datname)) FROM pg_database WHERE NOT datistemplate ORDER BY 1" | tee dbs.txt
+          IFS=',' read -r -a projects <<< "${PROJECTS:-}"
+          for p in "${projects[@]}"; do
+            p="${p//[[:space:]]/}"
+            [ -z "$p" ] && continue
+            grep -q "^${p}|" dbs.txt || { echo "missing database: $p"; exit 1; }
+            tables="$(psql -d "$p" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')")"
+            echo "$p: $tables tables"
+          done
+
+      - name: Verify repository integrity (5% sample)
+        run: restic check --read-data-subset=5%
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "## Restore drill"
+            echo
+            echo "| Database | Size |"
+            echo "|---|---|"
+            [ -f dbs.txt ] && sed 's/|/ | /; s/^/| /; s/$/ |/' dbs.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Ping success
+        if: success()
+        run: curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/restore-drill" || true
+
+      - name: Ping failure
+        if: failure()
+        run: curl -fsS -m 10 --retry 3 -o /dev/null "https://hc-ping.com/${HC_PING_KEY}/restore-drill/fail" || true

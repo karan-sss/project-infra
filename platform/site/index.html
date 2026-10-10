@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Karan</title>
+  <meta name="description" content="Karan, platform engineer. Portfolio coming soon.">
+  <style>
+    :root {
+      --bg: #fafaf9;
+      --fg: #1c1917;
+      --muted: #57534e;
+      --accent: #0f766e;
+      --rule: #e7e5e4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c0a09;
+        --fg: #f5f5f4;
+        --muted: #a8a29e;
+        --accent: #2dd4bf;
+        --rule: #292524;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--fg);
+      font: 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+    }
+    main { max-width: 34rem; width: 100%; }
+    h1 { font-size: clamp(2.5rem, 8vw, 4rem); line-height: 1.05; margin: 0 0 .5rem; letter-spacing: -0.03em; }
+    p.role { font-size: 1.25rem; color: var(--muted); margin: 0 0 2rem; }
+    hr { border: 0; border-top: 1px solid var(--rule); margin: 0 0 1.5rem; }
+    p.note { color: var(--muted); margin: 0 0 1rem; }
+    a { color: var(--accent); text-underline-offset: 3px; }
+    code { font: .9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Karan</h1>
+    <p class="role">Platform engineer — portfolio coming soon.</p>
+    <hr>
+    <p class="note">
+      This page is served by Caddy on a self-hosted ARM64 server behind Cloudflare,
+      provisioned with Terraform and deployed by GitHub Actions.
+    </p>
+    <p class="note">
+      See how it's built: <a href="https://github.com/karan-sss/project-infra">github.com/karan-sss/project-infra</a>
+    </p>
+  </main>
+</body>
+</html>

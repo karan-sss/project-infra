@@ -5,7 +5,7 @@
 [![build-caddy](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml)
 [![deploy-platform](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml)
 
-This repo is the production platform for **[karan-s.com](https://karan-s.com)**: my portfolio and a set of small side projects, self-hosted on a single ARM64 server for about **€6.49/month**.
+This repo is the production platform for **[karan-s.com](https://karan-s.com)**: my portfolio and a set of small side projects, self-hosted on a single ARM64 server for about **€7/month** (incl. VAT).
 
 It uses no PaaS. Everything is code: Terraform provisions the server, network, DNS, TLS, WAF and VPN. cloud-init hardens the host. GitHub Actions builds signed multi-arch images and deploys them over a private tailnet. The repo exists to show the full path from an empty cloud account to an observable, backed-up, secured production platform.
 
@@ -45,12 +45,13 @@ flowchart TB
 
 | Item | €/month |
 |---|---|
-| Hetzner CAX11 (2 Ampere cores, 4 GB, 40 GB NVMe, 20 TB) | ~5.99 |
-| Primary IPv4 | ~0.50 |
+| Hetzner CAX11 (2 Ampere cores, 4 GB, 40 GB NVMe, 20 TB) | 6.48 |
+| Primary IPv4 | 0.54 |
+| Primary IPv6 | 0 |
 | Cloudflare, R2, Tailscale, Grafana Cloud, healthchecks.io, GitHub Actions/GHCR/Pages | 0 (free tiers) |
-| **Total** | **~6.49** |
+| **Total** (incl. VAT, live Hetzner pricing) | **7.02** |
 
-Every Terraform PR is priced against the live Hetzner pricing API and **fails above €7** ([ADR-0010](docs/adr/0010-plan-guard.md)).
+Every Terraform PR is priced against the live Hetzner pricing API and **fails above €7.50** ([ADR-0010](docs/adr/0010-plan-guard.md)).
 
 ## Security at a glance
 

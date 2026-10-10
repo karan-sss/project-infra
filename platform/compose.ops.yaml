@@ -1,0 +1,40 @@
+# Observability agent (PLAN Task 14, ADR-0011). Enabled with COMPOSE_PROFILES=ops.
+# Networks are declared in compose.data.yaml; docker-socket-proxy there is in
+# both the `data` and `ops` profiles.
+
+volumes:
+  alloy_data:
+
+services:
+  alloy:
+    image: grafana/alloy:v1.20.1@sha256:2aa2099af76c0098d4af7a4d6e48f86cb66dc1a000222ad927a1c67c6542d13f
+    container_name: alloy
+    profiles: ["ops"]
+    restart: unless-stopped
+    mem_limit: 256m
+    command:
+      - run
+      - --server.http.listen-addr=127.0.0.1:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      SERVER_NAME: ${SERVER_NAME:-core-01}
+      GRAFANA_PROM_URL: ${GRAFANA_PROM_URL:?GRAFANA_PROM_URL missing}
+      GRAFANA_PROM_USER: ${GRAFANA_PROM_USER:?GRAFANA_PROM_USER missing}
+      GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL:?GRAFANA_LOKI_URL missing}
+      GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER:?GRAFANA_LOKI_USER missing}
+      GRAFANA_CLOUD_TOKEN: ${GRAFANA_CLOUD_TOKEN:?GRAFANA_CLOUD_TOKEN missing}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy_data:/var/lib/alloy/data
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - /var/log/journal:/var/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      # no Docker socket: container discovery/logs/cAdvisor go through the proxy
+    # cAdvisor needs the host cgroup tree to see per-container usage
+    cgroup: host
+    depends_on: [docker-socket-proxy]
+    networks: [socket, egress]
+    security_opt: ["no-new-privileges:true"]

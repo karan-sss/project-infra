@@ -1,0 +1,62 @@
+# Platform stack for karan-s.com, deployed to /opt/platform by
+# .github/workflows/deploy-platform.yml. Do not run builds here (ADR-0003).
+#
+# Optional parts are Compose profiles, enabled via COMPOSE_PROFILES in .env:
+#   data -> Postgres, Redis, docker-socket-proxy, Sablier (compose.data.yaml)
+#   ops  -> Grafana Alloy                                  (compose.ops.yaml)
+# With COMPOSE_PROFILES empty, only Caddy runs.
+name: platform
+
+include:
+  - compose.data.yaml
+  - compose.ops.yaml
+
+services:
+  caddy:
+    # The deploy workflow resolves the digest of :latest, verifies its cosign
+    # signature, and writes CADDY_IMAGE=ghcr.io/...@sha256:... into .env, so
+    # the server always runs a verified, digest-pinned image.
+    image: ${CADDY_IMAGE:-ghcr.io/karan-sss/caddy-cloudflare:latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    # Only the variables Caddy needs; never the whole .env (least privilege).
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN must be set in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in .env}
+      CF_DNS_API_TOKEN: ${CF_DNS_API_TOKEN:?CF_DNS_API_TOKEN must be set in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv/site:ro
+      # Image-defined, caddy-owned paths (non-root user, see images/caddy/Dockerfile).
+      - caddy_data:/var/lib/caddy/data
+      - caddy_config:/var/lib/caddy/config
+    networks:
+      - edge
+    mem_limit: 128m
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Non-root image user (10001) with no capabilities at all.
+    cap_drop:
+      - ALL
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+# Networks (incl. the external `edge` network created by cloud-init) are
+# declared once, in compose.data.yaml; Compose rejects duplicate declarations
+# across included files.
+
+volumes:
+  caddy_data:
+  caddy_config:
