@@ -1,0 +1,214 @@
+# Reusable build + deploy for app repos (PLAN Task 12).
+#
+# Caller example (in an app repo):
+#   jobs:
+#     deploy:
+#       uses: karan-sss/project-infra/.github/workflows/reusable-deploy-app.yml@main
+#       with:
+#         app_name: portfolio
+#       secrets: inherit
+#       permissions: { contents: read, packages: write, id-token: write }
+#
+# The app repo provides `deploy/compose.yaml` that uses `image: ${IMAGE}`, joins
+# network `edge` (+ `data` if it needs Postgres/Redis), sets mem_limit and the
+# sablier labels, and never publishes ports or mounts the Docker socket.
+name: reusable-deploy-app
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "App name: ^[a-z][a-z0-9-]*$ (dir /opt/apps/<app_name>, image name)"
+        required: true
+        type: string
+      context:
+        description: "Docker build context"
+        required: false
+        type: string
+        default: "."
+      dockerfile:
+        description: "Dockerfile path"
+        required: false
+        type: string
+        default: "Dockerfile"
+      compose_file:
+        description: "Compose file to deploy"
+        required: false
+        type: string
+        default: "deploy/compose.yaml"
+      server_host:
+        description: "Tailscale hostname of the server"
+        required: false
+        type: string
+        default: "core-01"
+    secrets:
+      TS_CI_OAUTH_CLIENT_ID:
+        required: true
+      TS_CI_OAUTH_SECRET:
+        required: true
+      DEPLOY_SSH_PRIVATE_KEY:
+        required: true
+      DEPLOY_KNOWN_HOSTS:
+        required: true
+      APP_ENV:
+        description: "Optional multi-line KEY=VALUE env for the app (DB/Redis credentials etc.)"
+        required: false
+
+permissions: {}
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate inputs and compose policy
+        env:
+          APP_NAME: ${{ inputs.app_name }}
+          COMPOSE_FILE: ${{ inputs.compose_file }}
+        run: |
+          [[ "$APP_NAME" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "::error::invalid app_name"; exit 1; }
+          [ -f "$COMPOSE_FILE" ] || { echo "::error::$COMPOSE_FILE not found"; exit 1; }
+          if grep -nE '^\s*ports:' "$COMPOSE_FILE"; then
+            echo "::error::apps must not publish ports (Caddy reaches them over the edge network)"; exit 1
+          fi
+          if grep -n 'docker.sock' "$COMPOSE_FILE"; then
+            echo "::error::apps must not mount the Docker socket"; exit 1
+          fi
+          grep -q 'mem_limit' "$COMPOSE_FILE" || { echo "::error::every app service needs mem_limit"; exit 1; }
+
+  build:
+    needs: validate
+    runs-on: ubuntu-24.04-arm   # native arm64, no QEMU
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # cosign keyless signing
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image name
+        id: name
+        env:
+          OWNER: ${{ github.repository_owner }}
+          APP_NAME: ${{ inputs.app_name }}
+        run: echo "repo=ghcr.io/${OWNER,,}/${APP_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push (linux/arm64)
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.dockerfile }}
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.repo }}:sha-${{ github.sha }}
+            ${{ steps.name.outputs.repo }}:latest
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha,scope=${{ inputs.app_name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app_name }}
+
+      - name: Image reference
+        id: ref
+        env:
+          REPO: ${{ steps.name.outputs.repo }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: echo "image=${REPO}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign image (keyless)
+        env:
+          IMAGE: ${{ steps.ref.outputs.image }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Scan image (fail on fixable CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ steps.ref.outputs.image }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment: production
+    concurrency:
+      group: deploy-app-${{ inputs.app_name }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      APP_NAME: ${{ inputs.app_name }}
+      IMAGE: ${{ needs.build.outputs.image }}
+      SERVER: ${{ inputs.server_host }}
+      COMPOSE_FILE: ${{ inputs.compose_file }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Verify signature
+        run: |
+          [[ "$APP_NAME" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "::error::invalid app_name"; exit 1; }
+          cosign verify "$IMAGE" \
+            --certificate-identity-regexp '^https://github.com/karan-sss/project-infra/\.github/workflows/reusable-deploy-app\.yml@' \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com > /dev/null
+          echo "signature OK: $IMAGE"
+
+      - uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          oauth-client-id: ${{ secrets.TS_CI_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_CI_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          log-public-key: false
+
+      - name: Pin host key
+        env:
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload compose file and env
+        env:
+          APP_ENV: ${{ secrets.APP_ENV }}
+        # APP_NAME is validated above; expanding it client-side is intended.
+        run: |
+          # shellcheck disable=SC2029
+          ssh "deployer@$SERVER" "install -d -m 750 /opt/apps/$APP_NAME"
+          scp "$COMPOSE_FILE" "deployer@$SERVER:/opt/apps/$APP_NAME/compose.yaml"
+          # secrets travel over the SSH stdin pipe only; never argv, never echoed
+          # shellcheck disable=SC2029
+          { printf 'IMAGE=%s\n' "$IMAGE"; printf '%s\n' "${APP_ENV:-}"; } \
+            | ssh "deployer@$SERVER" "umask 077; cat > /opt/apps/$APP_NAME/.env"
+
+      - name: Deploy
+        run: |
+          # shellcheck disable=SC2029
+          ssh "deployer@$SERVER" "cd /opt/apps/$APP_NAME && docker compose pull && docker compose up -d --remove-orphans --wait && docker image prune -f"

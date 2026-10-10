@@ -1,0 +1,69 @@
+# Caddy configuration for karan-s.com (ADR-0006, ADR-0007).
+# Env vars come from /opt/platform/.env (rendered by deploy-platform.yml).
+{
+	email {$ACME_EMAIL}
+	admin 127.0.0.1:2019
+
+	servers {
+		# Only Cloudflare reaches the origin (Hetzner firewall), so trust its
+		# published ranges and take the real visitor IP from Cf-Connecting-Ip.
+		trusted_proxies cloudflare {
+			interval 12h
+			timeout 15s
+		}
+		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
+	}
+}
+
+(security) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$DOMAIN}, *.{$DOMAIN} {
+	# Wildcard Let's Encrypt cert via DNS-01; works behind the Cloudflare proxy.
+	tls {
+		dns cloudflare {$CF_DNS_API_TOKEN}
+		resolvers 1.1.1.1 1.0.0.1
+	}
+	import security
+
+	@root host {$DOMAIN}
+	handle @root {
+		root * /srv/site
+		encode zstd gzip
+		file_server
+	}
+
+	# Example: an app that sleeps when idle (scale-to-zero via Sablier).
+	# Requires COMPOSE_PROFILES to include "data" (Sablier) and an app
+	# container labelled sablier.enable=true, sablier.group=myapp.
+	#
+	# @myapp host myapp.{$DOMAIN}
+	# handle @myapp {
+	# 	route {
+	# 		sablier http://sablier:10000 {
+	# 			group myapp
+	# 			session_duration 30m
+	# 			dynamic {
+	# 				display_name My App
+	# 				theme hacker-terminal
+	# 			}
+	# 		}
+	# 		reverse_proxy myapp:3000
+	# 	}
+	# }
+
+	handle {
+		respond "Not found" 404
+	}
+}

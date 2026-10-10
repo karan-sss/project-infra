@@ -1,0 +1,127 @@
+# Shared data plane + scale-to-zero (PLAN Task 11, ADR-0004/0013/0014).
+# Enabled with COMPOSE_PROFILES=data. All networks are declared here only;
+# compose.ops.yaml references them.
+
+networks:
+  edge:
+    external: true
+    name: edge
+  data:
+    # apps <-> postgres/redis; no route out
+    internal: true
+  ops:
+    # only used to publish postgres/redis on 127.0.0.1 for SSH-tunnel access
+    driver: bridge
+  socket:
+    # docker-socket-proxy <-> sablier/alloy; no route out
+    internal: true
+  egress:
+    # outbound-only network for alloy (push to Grafana Cloud)
+    driver: bridge
+
+volumes:
+  pg_data:
+
+services:
+  postgres:
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    container_name: postgres
+    profiles: ["data"]
+    restart: unless-stopped
+    mem_limit: 512m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - max_connections=50
+      - -c
+      - work_mem=4MB
+      - -c
+      - password_encryption=scram-sha-256
+    # PROJECTS, PG_PASS_<NAME>, PG_RO_PASSWORD are read by the init script.
+    env_file: .env
+    environment:
+      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:?PG_SUPERUSER_PASSWORD missing}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [data, ops]
+    ports:
+      - "127.0.0.1:5432:5432"   # loopback only; reach via SSH tunnel over Tailscale
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
+    container_name: redis
+    profiles: ["data"]
+    restart: unless-stopped
+    mem_limit: 96m
+    # Runs as the deployer user so it can read users.acl (mode 600, owned by
+    # deployer) without making the ACL file world-readable. Cache only
+    # (no persistence), so the image's /data ownership doesn't matter.
+    user: "${DEPLOYER_UID:-1001}:${DEPLOYER_GID:-1001}"
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_ADMIN_PASSWORD:?REDIS_ADMIN_PASSWORD missing}
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      # rendered on the server by redis/render-acl.sh BEFORE `compose up`
+      - ./redis/users.acl:/usr/local/etc/redis/users.acl:ro
+    read_only: true
+    tmpfs: ["/data", "/tmp"]
+    networks: [data, ops]
+    ports:
+      - "127.0.0.1:6379:6379"   # loopback only
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning --user admin ping | grep -q PONG"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: docker-socket-proxy
+    profiles: ["data", "ops"]
+    restart: unless-stopped
+    mem_limit: 32m
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      INFO: 1
+      PING: 1
+      VERSION: 1
+      POST: 0          # no create/exec/etc. => no host takeover
+      ALLOW_START: 1   # Sablier wake-up
+      ALLOW_STOP: 1    # Sablier scale-to-zero
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [socket]
+    security_opt: ["no-new-privileges:true"]
+
+  sablier:
+    image: sablierapp/sablier:1.18.0@sha256:c00c8a01c8c809dd258a8b362ad8ba9a9227753fc9857ae7506fd427175e038c
+    container_name: sablier
+    profiles: ["data"]
+    restart: unless-stopped
+    mem_limit: 32m
+    command: ["start"]
+    environment:
+      SABLIER_PROVIDER_NAME: docker
+      SABLIER_PROVIDER_DOCKER_STRATEGY: stop
+      SABLIER_SESSIONS_DEFAULT_DURATION: 30m
+      SABLIER_LOGGING_LEVEL: info
+      DOCKER_HOST: tcp://docker-socket-proxy:2375   # no socket mount
+    depends_on: [docker-socket-proxy]
+    # API on :10000 is reachable by Caddy over `edge`; never routed publicly.
+    networks: [socket, edge]
+    read_only: true
+    security_opt: ["no-new-privileges:true"]

@@ -1,0 +1,207 @@
+name: deploy-platform
+
+# Deploys platform/ to /opt/platform on the server over Tailscale (ADR-0008).
+# No Terraform runs here. Only changed containers restart.
+# A new Caddy image is rolled out by build-caddy.yml dispatching this workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - platform/**
+      - .github/workflows/deploy-platform.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/karan-sss/caddy-cloudflare
+  # Only images built by build-caddy.yml on main are accepted.
+  CERT_IDENTITY: https://github.com/karan-sss/project-infra/.github/workflows/build-caddy.yml@refs/heads/main
+  CERT_ISSUER: https://token.actions.githubusercontent.com
+
+jobs:
+  deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    env:
+      SERVER: ${{ vars.SERVER_TS_HOST }}
+      DOMAIN: ${{ vars.DOMAIN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Join tailnet (ephemeral tag:ci node)
+        uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4.2.0
+        with:
+          oauth-client-id: ${{ secrets.TS_CI_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_CI_OAUTH_SECRET }}
+          tags: tag:ci
+          ping: ${{ vars.SERVER_TS_HOST }}
+
+      - name: Load deploy key
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+          log-public-key: false
+
+      - name: Pin server host key
+        env:
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "deployer@${SERVER}" true
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Resolve and verify Caddy image
+        id: caddy
+        run: |
+          set -euo pipefail
+          digest=$(docker buildx imagetools inspect "${IMAGE}:latest" --format '{{json .Manifest}}' | jq -r .digest)
+          ref="${IMAGE}@${digest}"
+          cosign verify "$ref" \
+            --certificate-identity "$CERT_IDENTITY" \
+            --certificate-oidc-issuer "$CERT_ISSUER" > /dev/null
+          echo "Verified $ref"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - name: Sync platform files
+        run: |
+          rsync -az --delete \
+            --exclude .env --exclude backup/.env --exclude redis/users.acl \
+            platform/ "deployer@${SERVER}:/opt/platform/"
+
+      - name: Write env files
+        env:
+          CADDY_IMAGE: ${{ steps.caddy.outputs.ref }}
+          ACME_EMAIL: ${{ vars.ADMIN_EMAIL }}
+          CF_DNS_API_TOKEN: ${{ secrets.CLOUDFLARE_DNS_TOKEN }}
+          COMPOSE_PROFILES: ${{ vars.COMPOSE_PROFILES }}
+          PROJECTS: ${{ vars.PROJECTS }}
+          PG_SUPERUSER_PASSWORD: ${{ secrets.PG_SUPERUSER_PASSWORD }}
+          PG_RO_PASSWORD: ${{ secrets.PG_RO_PASSWORD }}
+          REDIS_ADMIN_PASSWORD: ${{ secrets.REDIS_ADMIN_PASSWORD }}
+          GRAFANA_CLOUD_TOKEN: ${{ secrets.GRAFANA_CLOUD_TOKEN }}
+          GRAFANA_PROM_URL: ${{ vars.GRAFANA_PROM_URL }}
+          GRAFANA_PROM_USER: ${{ vars.GRAFANA_PROM_USER }}
+          GRAFANA_LOKI_URL: ${{ vars.GRAFANA_LOKI_URL }}
+          GRAFANA_LOKI_USER: ${{ vars.GRAFANA_LOKI_USER }}
+          # Per-project PG_PASS_*/REDIS_PASS_* secrets can't be listed statically;
+          # only those names are extracted below and the JSON is unset right after.
+          SECRETS_JSON: ${{ toJSON(secrets) }} # zizmor: ignore[overprovisioned-secrets]
+          CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
+          RESTIC_PASSWORD: ${{ secrets.RESTIC_PASSWORD }}
+          R2_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
+          R2_BACKUP_SECRET_ACCESS_KEY: ${{ secrets.R2_BACKUP_SECRET_ACCESS_KEY }}
+          HC_PING_KEY: ${{ secrets.HC_PING_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          envfile=$(mktemp)
+          backupfile=$(mktemp)
+          trap 'rm -f "$envfile" "$backupfile"' EXIT
+
+          # KEY='value' lines: literal for Compose .env, env_file and `sh .` alike.
+          kv() {
+            local name=$1 value=$2
+            case "$value" in
+              *"'"*|*$'\n'*) echo "::error::value of $name contains a quote or newline" >&2; exit 1 ;;
+            esac
+            printf "%s='%s'\n" "$name" "$value"
+          }
+          opt() { if [ -n "${!1:-}" ]; then kv "$1" "${!1}"; fi; }
+
+          {
+            kv DOMAIN "$DOMAIN"
+            kv ACME_EMAIL "$ACME_EMAIL"
+            kv CF_DNS_API_TOKEN "$CF_DNS_API_TOKEN"
+            kv CADDY_IMAGE "$CADDY_IMAGE"
+            kv COMPOSE_PROFILES "${COMPOSE_PROFILES:-}"
+            for v in PROJECTS PG_SUPERUSER_PASSWORD PG_RO_PASSWORD REDIS_ADMIN_PASSWORD \
+                     GRAFANA_CLOUD_TOKEN GRAFANA_PROM_URL GRAFANA_PROM_USER \
+                     GRAFANA_LOKI_URL GRAFANA_LOKI_USER; do
+              opt "$v"
+            done
+            # Per-project credentials: every secret named PG_PASS_* / REDIS_PASS_*.
+            python3 - <<'PY'
+          import json, os, re, sys
+          for name, value in sorted(json.loads(os.environ["SECRETS_JSON"]).items()):
+              if re.fullmatch(r"(PG_PASS|REDIS_PASS)_[A-Z0-9_]+", name):
+                  if "'" in value or "\n" in value:
+                      sys.exit(f"::error::value of {name} contains a quote or newline")
+                  print(f"{name}='{value}'")
+          PY
+          } > "$envfile"
+          unset SECRETS_JSON
+
+          ssh "deployer@${SERVER}" 'umask 077; cat > /opt/platform/.env' < "$envfile"
+
+          if [ -n "${RESTIC_PASSWORD:-}" ]; then
+            {
+              kv RESTIC_REPOSITORY "s3:https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com/project-infra-backups"
+              kv RESTIC_PASSWORD "$RESTIC_PASSWORD"
+              kv AWS_ACCESS_KEY_ID "$R2_BACKUP_ACCESS_KEY_ID"
+              kv AWS_SECRET_ACCESS_KEY "$R2_BACKUP_SECRET_ACCESS_KEY"
+              kv HC_PING_KEY "$HC_PING_KEY"
+            } > "$backupfile"
+            ssh "deployer@${SERVER}" 'umask 077; install -d -m 700 /opt/platform/backup && cat > /opt/platform/backup/.env' < "$backupfile"
+          fi
+
+      - name: Compose up
+        run: |
+          ssh "deployer@${SERVER}" bash -s <<'REMOTE'
+          set -euo pipefail
+          cd /opt/platform
+          profiles=$(sed -n "s/^COMPOSE_PROFILES='\(.*\)'$/\1/p" .env)
+          has_data=false
+          case ",${profiles}," in *,data,*) has_data=true ;; esac
+
+          # Redis ACL file must exist before Redis starts for the first time.
+          if $has_data; then ./redis/render-acl.sh; fi
+
+          # Redis runs as the deployer user so users.acl can stay mode 600.
+          DEPLOYER_UID=$(id -u); DEPLOYER_GID=$(id -g); export DEPLOYER_UID DEPLOYER_GID
+
+          docker compose pull --quiet
+          docker compose up -d --remove-orphans --wait --wait-timeout 180
+
+          # Idempotent: create/rotate per-project roles and databases.
+          if $has_data; then docker exec postgres /docker-entrypoint-initdb.d/00-projects.sh; fi
+
+          docker image prune -f > /dev/null
+          docker compose ps --format 'table {{.Service}}\t{{.Status}}'
+          REMOTE
+
+      - name: Smoke test
+        env:
+          CADDY_IMAGE: ${{ steps.caddy.outputs.ref }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 5 --retry-all-errors "https://${DOMAIN}")
+          echo "https://${DOMAIN} -> HTTP ${code}"
+          {
+            echo "## deploy-platform"
+            echo
+            echo "- Caddy image: \`${CADDY_IMAGE}\` (cosign verified)"
+            echo "- Smoke test: https://${DOMAIN} → HTTP ${code}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$code" = 200

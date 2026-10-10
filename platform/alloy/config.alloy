@@ -1,0 +1,166 @@
+// Grafana Alloy -> Grafana Cloud free tier (PLAN Task 14, ADR-0011).
+// No Docker socket: discovery, logs and cAdvisor use the read-only proxy.
+// Keep active series < 10k: cAdvisor metrics are allow-listed below.
+
+// ---------------------------------------------------------------- metrics
+
+prometheus.exporter.unix "host" {
+	procfs_path        = "/host/proc"
+	sysfs_path         = "/host/sys"
+	rootfs_path        = "/host/root"
+	disable_collectors = ["arp", "bcache", "bonding", "btrfs", "fibrechannel", "infiniband", "ipvs", "mdadm", "nfs", "nfsd", "tapestats", "xfs", "zfs"]
+
+	filesystem {
+		mount_points_exclude = "^/(dev|proc|run|sys|var/lib/docker/.+|var/snap/.+)($|/)"
+		fs_types_exclude     = "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|mqueue|nsfs|overlay|proc|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tmpfs|tracefs)$"
+	}
+}
+
+prometheus.exporter.cadvisor "containers" {
+	docker_host      = "tcp://docker-socket-proxy:2375"
+	docker_only      = true
+	storage_duration = "2m"
+}
+
+prometheus.scrape "host" {
+	targets         = prometheus.exporter.unix.host.targets
+	forward_to      = [prometheus.relabel.instance.receiver]
+	scrape_interval = "60s"
+	job_name        = "integrations/node_exporter"
+}
+
+prometheus.scrape "containers" {
+	targets         = prometheus.exporter.cadvisor.containers.targets
+	forward_to      = [prometheus.relabel.containers.receiver]
+	scrape_interval = "60s"
+	job_name        = "integrations/cadvisor"
+}
+
+prometheus.relabel "containers" {
+	forward_to = [prometheus.relabel.instance.receiver]
+
+	// allow-list the metric families we chart/alert on
+	rule {
+		source_labels = ["__name__"]
+		regex         = "container_(memory_working_set_bytes|memory_rss|memory_swap|spec_memory_limit_bytes|cpu_usage_seconds_total|network_receive_bytes_total|network_transmit_bytes_total|oom_events_total|last_seen|start_time_seconds)"
+		action        = "keep"
+	}
+
+	// high-cardinality labels; `name` (container name) is kept
+	rule {
+		regex  = "id|image|container_label_.+"
+		action = "labeldrop"
+	}
+}
+
+prometheus.relabel "instance" {
+	forward_to = [prometheus.remote_write.grafana.receiver]
+
+	rule {
+		target_label = "instance"
+		replacement  = coalesce(sys.env("SERVER_NAME"), "core-01")
+	}
+}
+
+prometheus.remote_write "grafana" {
+	endpoint {
+		url = sys.env("GRAFANA_PROM_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_PROM_USER")
+			password = sys.env("GRAFANA_CLOUD_TOKEN")
+		}
+	}
+}
+
+// ------------------------------------------------------------------- logs
+
+discovery.docker "containers" {
+	host             = "tcp://docker-socket-proxy:2375"
+	refresh_interval = "30s"
+}
+
+discovery.relabel "containers" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+		target_label  = "compose_project"
+	}
+}
+
+loki.source.docker "containers" {
+	host          = "tcp://docker-socket-proxy:2375"
+	targets       = discovery.docker.containers.targets
+	relabel_rules = discovery.relabel.containers.rules
+	labels        = {job = "docker"}
+	forward_to    = [loki.process.redact.receiver]
+}
+
+loki.relabel "journal" {
+	forward_to = []
+
+	rule {
+		source_labels = ["__journal__systemd_unit"]
+		target_label  = "unit"
+	}
+
+	rule {
+		source_labels = ["__journal_priority_keyword"]
+		target_label  = "level"
+	}
+}
+
+loki.source.journal "host" {
+	path          = "/var/log/journal"
+	max_age       = "12h"
+	relabel_rules = loki.relabel.journal.rules
+	labels        = {job = "journal"}
+	forward_to    = [loki.process.redact.receiver]
+}
+
+// Mask secrets before anything leaves the host.
+loki.process "redact" {
+	forward_to = [loki.write.grafana.receiver]
+
+	stage.replace {
+		expression = "(?i)(?:password|passwd|pwd|secret|token|api_key|apikey)[\"']?\\s*[=:]\\s*[\"']?([^\\s\"'&,;]+)"
+		replace    = "<redacted>"
+	}
+
+	stage.replace {
+		expression = "(?i)authorization:\\s*(?:bearer|basic)\\s+(\\S+)"
+		replace    = "<redacted>"
+	}
+
+	stage.replace {
+		expression = "(tskey-[A-Za-z0-9-]+)"
+		replace    = "<redacted>"
+	}
+
+	stage.replace {
+		expression = "hc-ping\\.com/([A-Za-z0-9_-]+)"
+		replace    = "<redacted>"
+	}
+
+	stage.static_labels {
+		values = {host = coalesce(sys.env("SERVER_NAME"), "core-01")}
+	}
+}
+
+loki.write "grafana" {
+	endpoint {
+		url = sys.env("GRAFANA_LOKI_URL")
+
+		basic_auth {
+			username = sys.env("GRAFANA_LOKI_USER")
+			password = sys.env("GRAFANA_CLOUD_TOKEN")
+		}
+	}
+}
