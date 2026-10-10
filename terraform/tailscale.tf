@@ -1,13 +1,17 @@
 # Terraform owns the whole tailnet policy (ADR-0008).
 # - Your own devices (autogroup:member) keep full access, incl. laptop -> server.
 # - CI runners (tag:ci, ephemeral) may only reach SSH on the server.
+# - tag:terraform is the tag of Terraform's OAuth client. It owns tag:server
+#   and tag:ci so that client can mint auth keys for them (Tailscale's
+#   recommended "tag owner" pattern for OAuth clients).
 resource "tailscale_acl" "this" {
   overwrite_existing_content = true
 
   acl = jsonencode({
     tagOwners = {
-      "tag:server" = ["autogroup:admin"]
-      "tag:ci"     = ["autogroup:admin"]
+      "tag:terraform" = ["autogroup:admin"]
+      "tag:server"    = ["autogroup:admin", "tag:terraform"]
+      "tag:ci"        = ["autogroup:admin", "tag:terraform"]
     }
     grants = [
       {
