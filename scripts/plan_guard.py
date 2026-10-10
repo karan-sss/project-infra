@@ -4,10 +4,10 @@
 Usage: plan_guard.py plan.json   (plan.json = `terraform show -json tfplan`)
 
 Fails (exit 1) when:
-  * the monthly Hetzner cost of the planned end state exceeds BUDGET_EUR, or
+  * the monthly Hetzner cost of the planned end state exceeds BUDGET_EUR (gross, incl. VAT), or
   * a protected resource would be deleted or replaced and ALLOW_REPLACE != "true".
 
-Env: HCLOUD_TOKEN (required), BUDGET_EUR (default 7.00), ALLOW_REPLACE,
+Env: HCLOUD_TOKEN (required), BUDGET_EUR (default 7.50), ALLOW_REPLACE,
      GITHUB_STEP_SUMMARY (optional, report is appended there too).
 """
 import json
@@ -70,7 +70,7 @@ def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
     plan = json.load(open(sys.argv[1]))
-    budget = float(os.environ.get("BUDGET_EUR", "7.00"))
+    budget = float(os.environ.get("BUDGET_EUR", "7.50"))
     allow_replace = os.environ.get("ALLOW_REPLACE", "").lower() == "true"
 
     lines = cost_lines(plan, fetch_pricing(os.environ["HCLOUD_TOKEN"]))

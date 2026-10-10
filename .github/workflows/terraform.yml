@@ -23,6 +23,8 @@ concurrency:
 
 env:
   TF_IN_AUTOMATION: "1"
+  # Monthly Hetzner budget incl. VAT, enforced by scripts/plan_guard.py (ADR-0010).
+  BUDGET_EUR: "7.50"
   TF_INPUT: "0"
 
 jobs:
