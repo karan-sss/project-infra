@@ -44,6 +44,12 @@
 		file_server
 	}
 
+	# www is served by the wildcard DNS record; send it to the apex.
+	@www host www.{$DOMAIN}
+	handle @www {
+		redir https://{$DOMAIN}{uri} permanent
+	}
+
 	# Example: an app that sleeps when idle (scale-to-zero via Sablier).
 	# Requires COMPOSE_PROFILES to include "data" (Sablier) and an app
 	# container labelled sablier.enable=true, sablier.group=myapp.
