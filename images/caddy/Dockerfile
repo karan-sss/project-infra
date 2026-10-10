@@ -18,6 +18,17 @@ LABEL org.opencontainers.image.title="caddy-cloudflare" \
 
 COPY --from=build /usr/bin/caddy /usr/bin/caddy
 
+# Run as an unprivileged user. Binding 80/443 needs no capability because
+# Docker sets net.ipv4.ip_unprivileged_port_start=0 inside the container
+# (also set explicitly in platform/compose.yaml).
+RUN addgroup -S -g 10001 caddy \
+ && adduser -S -D -H -u 10001 -G caddy caddy \
+ && chown -R caddy:caddy /data /config
+USER 10001:10001
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:2019/config/ >/dev/null || exit 1
+
 # Fail the build early if a plugin is missing.
 RUN caddy list-modules | grep -q '^dns.providers.cloudflare$' \
  && caddy list-modules | grep -q '^http.ip_sources.cloudflare$' \
