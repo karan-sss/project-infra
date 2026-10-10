@@ -21,9 +21,13 @@ COPY --from=build /usr/bin/caddy /usr/bin/caddy
 # Run as an unprivileged user. Binding 80/443 needs no capability because
 # Docker sets net.ipv4.ip_unprivileged_port_start=0 inside the container
 # (also set explicitly in platform/compose.yaml).
+# The base image declares /data and /config as VOLUMEs, and ownership changes
+# to VOLUME paths are discarded, so state lives in caddy-owned directories.
+ENV XDG_DATA_HOME=/var/lib/caddy/data \
+    XDG_CONFIG_HOME=/var/lib/caddy/config
 RUN addgroup -S -g 10001 caddy \
  && adduser -S -D -H -u 10001 -G caddy caddy \
- && chown -R caddy:caddy /data /config
+ && install -d -o caddy -g caddy -m 700 /var/lib/caddy/data /var/lib/caddy/config
 USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \

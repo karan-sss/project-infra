@@ -59,17 +59,20 @@ jobs:
 
       - name: Smoke test (non-root, cap_drop ALL, read-only)
         run: |
+          docker volume create caddy-test-data >/dev/null
           docker run -d --name caddy-test -p 8080:80 \
             --cap-drop ALL --security-opt no-new-privileges --read-only --tmpfs /tmp \
+            -v caddy-test-data:/var/lib/caddy/data \
             caddy-cloudflare:pr
+          ok=false
           for _ in $(seq 1 20); do
-            if curl -fsS -o /dev/null http://127.0.0.1:8080; then break; fi
+            if curl -fsS -o /dev/null http://127.0.0.1:8080; then ok=true; break; fi
             sleep 1
           done
+          docker logs caddy-test 2>&1 | tail -20
+          $ok || { echo "::error::Caddy did not serve HTTP"; exit 1; }
           docker exec caddy-test id
-          curl -fsS -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:8080
-          test "$(docker inspect -f '{{.Config.User}}' caddy-test)" = "10001:10001"
-          docker logs caddy-test 2>&1 | tail -5
+          test "$(docker exec caddy-test id -u)" = "10001"
 
   build:
     name: build (${{ matrix.platform }})

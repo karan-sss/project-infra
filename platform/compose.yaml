@@ -30,8 +30,9 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./site:/srv/site:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      # Image-defined, caddy-owned paths (non-root user, see images/caddy/Dockerfile).
+      - caddy_data:/var/lib/caddy/data
+      - caddy_config:/var/lib/caddy/config
     networks:
       - edge
     mem_limit: 128m
