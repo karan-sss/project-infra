@@ -25,7 +25,11 @@ COPY --from=build /usr/bin/caddy /usr/bin/caddy
 # to VOLUME paths are discarded, so state lives in caddy-owned directories.
 ENV XDG_DATA_HOME=/var/lib/caddy/data \
     XDG_CONFIG_HOME=/var/lib/caddy/config
-RUN addgroup -S -g 10001 caddy \
+# Drop the file capability the base image sets on the binary: with
+# cap_drop ALL a binary carrying file caps cannot be executed at all, and
+# the unprivileged-port sysctl makes it unnecessary.
+RUN setcap -r /usr/bin/caddy \
+ && addgroup -S -g 10001 caddy \
  && adduser -S -D -H -u 10001 -G caddy caddy \
  && install -d -o caddy -g caddy -m 700 /var/lib/caddy/data /var/lib/caddy/config
 USER 10001:10001
