@@ -108,3 +108,29 @@ resource "cloudflare_r2_bucket" "backups" {
   name       = "project-infra-backups"
   location   = "EEUR"
 }
+
+# Anti-spoofing for a domain that never sends or receives email.
+# Together with the existing _dmarc record (p=quarantine), receivers reject
+# mail forged as @domain. Set var.no_email = false before adding a mail provider.
+resource "cloudflare_dns_record" "spf_none" {
+  count = var.no_email ? 1 : 0
+
+  zone_id = var.cloudflare_zone_id
+  name    = var.domain
+  type    = "TXT"
+  content = "\"v=spf1 -all\""
+  ttl     = 3600
+  comment = "managed by terraform: no mail is ever sent from this domain"
+}
+
+resource "cloudflare_dns_record" "null_mx" {
+  count = var.no_email ? 1 : 0
+
+  zone_id  = var.cloudflare_zone_id
+  name     = var.domain
+  type     = "MX"
+  content  = "."
+  priority = 0
+  ttl      = 3600
+  comment  = "managed by terraform: null MX (RFC 7505), domain accepts no mail"
+}

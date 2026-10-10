@@ -82,3 +82,9 @@ variable "enable_status_page" {
   type        = bool
   default     = false
 }
+
+variable "no_email" {
+  description = "Domain never sends or receives email: publish SPF -all and a null MX (RFC 7505) so nobody can send mail as @domain."
+  type        = bool
+  default     = true
+}
