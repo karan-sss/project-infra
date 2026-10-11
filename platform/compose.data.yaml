@@ -42,7 +42,7 @@ services:
     # PROJECTS, PG_PASS_<NAME>, PG_RO_PASSWORD are read by the init script.
     env_file: .env
     environment:
-      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:?PG_SUPERUSER_PASSWORD missing}
+      POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:-}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
     volumes:
       - pg_data:/var/lib/postgresql/data
@@ -70,7 +70,7 @@ services:
     user: "${DEPLOYER_UID:-1001}:${DEPLOYER_GID:-1001}"
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
     environment:
-      REDISCLI_AUTH: ${REDIS_ADMIN_PASSWORD:?REDIS_ADMIN_PASSWORD missing}
+      REDISCLI_AUTH: ${REDIS_ADMIN_PASSWORD:-}
     volumes:
       - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
       # rendered on the server by redis/render-acl.sh BEFORE `compose up`

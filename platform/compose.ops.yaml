@@ -19,11 +19,11 @@ services:
       - /etc/alloy/config.alloy
     environment:
       SERVER_NAME: ${SERVER_NAME:-core-01}
-      GRAFANA_PROM_URL: ${GRAFANA_PROM_URL:?GRAFANA_PROM_URL missing}
-      GRAFANA_PROM_USER: ${GRAFANA_PROM_USER:?GRAFANA_PROM_USER missing}
-      GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL:?GRAFANA_LOKI_URL missing}
-      GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER:?GRAFANA_LOKI_USER missing}
-      GRAFANA_CLOUD_TOKEN: ${GRAFANA_CLOUD_TOKEN:?GRAFANA_CLOUD_TOKEN missing}
+      GRAFANA_PROM_URL: ${GRAFANA_PROM_URL:-}
+      GRAFANA_PROM_USER: ${GRAFANA_PROM_USER:-}
+      GRAFANA_LOKI_URL: ${GRAFANA_LOKI_URL:-}
+      GRAFANA_LOKI_USER: ${GRAFANA_LOKI_USER:-}
+      GRAFANA_CLOUD_TOKEN: ${GRAFANA_CLOUD_TOKEN:-}
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy_data:/var/lib/alloy/data
