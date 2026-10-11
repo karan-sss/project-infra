@@ -41,6 +41,17 @@ resource "cloudflare_dns_record" "status" {
   comment = "Upptime status page on GitHub Pages"
 }
 
+# Verified Pages domain: only this GitHub account can serve Pages on
+# *.domain, so a dangling CNAME can't be claimed by anyone else.
+resource "cloudflare_dns_record" "github_pages_verification" {
+  zone_id = var.cloudflare_zone_id
+  name    = "_github-pages-challenge-${var.github_user}.${var.domain}"
+  type    = "TXT"
+  content = "\"${var.github_pages_verification}\""
+  ttl     = 3600
+  comment = "managed by terraform: GitHub Pages domain verification"
+}
+
 resource "cloudflare_zone_setting" "this" {
   for_each = local.zone_settings
 

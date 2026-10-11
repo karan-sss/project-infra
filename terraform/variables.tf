@@ -99,3 +99,8 @@ variable "grafana_prometheus_name" {
   description = "Name of the Grafana Cloud stack's hosted Prometheus data source (grafanacloud-<stack>-prom)."
   type        = string
 }
+
+variable "github_pages_verification" {
+  description = "TXT value from GitHub → Settings → Pages → Verified domains (public once published)."
+  type        = string
+}
