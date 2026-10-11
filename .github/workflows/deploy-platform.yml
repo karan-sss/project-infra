@@ -106,9 +106,11 @@ jobs:
           GRAFANA_PROM_USER: ${{ vars.GRAFANA_PROM_USER }}
           GRAFANA_LOKI_URL: ${{ vars.GRAFANA_LOKI_URL }}
           GRAFANA_LOKI_USER: ${{ vars.GRAFANA_LOKI_USER }}
-          # Per-project PG_PASS_*/REDIS_PASS_* secrets can't be listed statically;
-          # only those names are extracted below and the JSON is unset right after.
-          SECRETS_JSON: ${{ toJSON(secrets) }} # zizmor: ignore[overprovisioned-secrets]
+          # Per-project credentials are listed explicitly (never toJSON(secrets)).
+          # Onboarding a project = add its PG_PASS_<NAME>/REDIS_PASS_<NAME> here,
+          # create the secrets, and add the name to the PROJECTS variable.
+          PG_PASS_PORTFOLIO: ${{ secrets.PG_PASS_PORTFOLIO }}
+          REDIS_PASS_PORTFOLIO: ${{ secrets.REDIS_PASS_PORTFOLIO }}
           CF_ACCOUNT_ID: ${{ vars.CF_ACCOUNT_ID }}
           RESTIC_PASSWORD: ${{ secrets.RESTIC_PASSWORD }}
           R2_BACKUP_ACCESS_KEY_ID: ${{ secrets.R2_BACKUP_ACCESS_KEY_ID }}
@@ -142,17 +144,11 @@ jobs:
                      GRAFANA_LOKI_URL GRAFANA_LOKI_USER; do
               opt "$v"
             done
-            # Per-project credentials: every secret named PG_PASS_* / REDIS_PASS_*.
-            python3 - <<'PY'
-          import json, os, re, sys
-          for name, value in sorted(json.loads(os.environ["SECRETS_JSON"]).items()):
-              if re.fullmatch(r"(PG_PASS|REDIS_PASS)_[A-Z0-9_]+", name):
-                  if "'" in value or "\n" in value:
-                      sys.exit(f"::error::value of {name} contains a quote or newline")
-                  print(f"{name}='{value}'")
-          PY
+            # Per-project credentials (listed in the step env above).
+            for v in $(compgen -v | grep -E '^(PG_PASS|REDIS_PASS)_[A-Z0-9_]+$' | sort); do
+              opt "$v"
+            done
           } > "$envfile"
-          unset SECRETS_JSON
 
           ssh "deployer@${SERVER}" 'umask 077; cat > /opt/platform/.env' < "$envfile"
 

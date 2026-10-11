@@ -63,14 +63,15 @@ ssh core-01 free -h && swapon --show
 1. Pick a name matching `^[a-z][a-z0-9_]*$` (e.g. `notes`). Postgres/Redis names use `_`, subdomains use `-`.
 2. Generate credentials with `openssl rand -base64 32` and add them as project-infra secrets: `PG_PASS_NOTES`, plus `REDIS_PASS_NOTES` if the app needs Redis.
 3. Add the name to the `PROJECTS` repo variable (`portfolio,notes`).
-4. Add a route in `platform/Caddyfile` (`@notes host notes.{$DOMAIN}` → Sablier → `reverse_proxy notes:<port>`) and open a PR. Merging redeploys the platform; the init script creates the role and database, and `render-acl.sh` adds the Redis user.
-5. In the app repo, add `deploy/compose.yaml`:
+4. Add `PG_PASS_NOTES: ${{ secrets.PG_PASS_NOTES }}` (and `REDIS_PASS_NOTES` if used) to the *Write env files* step env in `.github/workflows/deploy-platform.yml`. Secrets are listed explicitly; the workflow never loads `toJSON(secrets)`.
+5. Add a route in `platform/Caddyfile` (`@notes host notes.{$DOMAIN}` → Sablier → `reverse_proxy notes:<port>`) and open a PR. Merging redeploys the platform; the init script creates the role and database, and `render-acl.sh` adds the Redis user.
+6. In the app repo, add `deploy/compose.yaml`:
    - `image: ${IMAGE}`
    - networks `edge` (external) and, if needed, `data`
    - a `mem_limit`
    - labels `sablier.enable=true` and `sablier.group=notes`
    - **no `ports:`, no Docker socket**
-6. In the app repo, add a workflow that calls `karan-sss/project-infra/.github/workflows/reusable-deploy-app.yml@main` with `app_name: notes`. Give the app repo the secrets `TS_CI_OAUTH_CLIENT_ID`, `TS_CI_OAUTH_SECRET`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_KNOWN_HOSTS` and `APP_ENV` (e.g. `DATABASE_URL=postgres://notes:<pw>@postgres:5432/notes`), plus a `production` environment.
+7. In the app repo, add a workflow that calls `karan-sss/project-infra/.github/workflows/reusable-deploy-app.yml@main` with `app_name: notes`. Give the app repo the secrets `TS_CI_OAUTH_CLIENT_ID`, `TS_CI_OAUTH_SECRET`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_KNOWN_HOSTS` and `APP_ENV` (e.g. `DATABASE_URL=postgres://notes:<pw>@postgres:5432/notes`), plus a `production` environment.
 
 ---
 
