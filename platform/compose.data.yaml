@@ -39,8 +39,12 @@ services:
       - work_mem=4MB
       - -c
       - password_encryption=scram-sha-256
-    # PROJECTS, PG_PASS_<NAME>, PG_RO_PASSWORD are read by the init script.
-    env_file: .env
+    # Only PROJECTS, PG_PASS_<NAME> and PG_RO_PASSWORD (read by the init
+    # script). deploy-platform extracts them from .env into this file, so the
+    # container never sees unrelated secrets (Cloudflare, Grafana, restic).
+    env_file:
+      - path: postgres/projects.env
+        required: false
     environment:
       POSTGRES_PASSWORD: ${PG_SUPERUSER_PASSWORD:-}
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256

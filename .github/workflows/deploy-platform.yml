@@ -88,7 +88,7 @@ jobs:
       - name: Sync platform files
         run: |
           rsync -az --delete \
-            --exclude .env --exclude backup/.env --exclude redis/users.acl \
+            --exclude .env --exclude backup/.env --exclude redis/users.acl --exclude postgres/projects.env \
             platform/ "deployer@${SERVER}:/opt/platform/"
 
       - name: Write env files
@@ -187,8 +187,12 @@ jobs:
           if $has_data; then require PG_SUPERUSER_PASSWORD PG_RO_PASSWORD REDIS_ADMIN_PASSWORD PROJECTS; fi
           if $has_ops; then require GRAFANA_PROM_URL GRAFANA_PROM_USER GRAFANA_LOKI_URL GRAFANA_LOKI_USER GRAFANA_CLOUD_TOKEN; fi
 
-          # Redis ACL file must exist before Redis starts for the first time.
-          if $has_data; then ./redis/render-acl.sh; fi
+          if $has_data; then
+            # Postgres only gets the variables its init script needs.
+            (umask 077; grep -E "^(PROJECTS|PG_RO_PASSWORD|PG_PASS_[A-Z0-9_]+)=" .env > postgres/projects.env || true)
+            # Redis ACL file must exist before Redis starts for the first time.
+            ./redis/render-acl.sh
+          fi
 
           # Redis runs as the deployer user so users.acl can stay mode 600.
           DEPLOYER_UID=$(id -u); DEPLOYER_GID=$(id -g); export DEPLOYER_UID DEPLOYER_GID

@@ -39,8 +39,12 @@ trap 'rm -f "$tmp"' EXIT
   done
 } > "$tmp"
 
-chmod 600 "$tmp"
-mv -f "$tmp" redis/users.acl
+# Overwrite in place (same inode): users.acl is a single-file bind mount, and
+# a rename would leave the running container reading the old file on ACL LOAD.
+touch redis/users.acl
+chmod 600 redis/users.acl
+cat "$tmp" > redis/users.acl
+rm -f "$tmp"
 trap - EXIT
 echo "render-acl: wrote redis/users.acl"
 
