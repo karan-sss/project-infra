@@ -171,6 +171,21 @@ jobs:
           profiles=$(sed -n "s/^COMPOSE_PROFILES='\(.*\)'$/\1/p" .env)
           has_data=false
           case ",${profiles}," in *,data,*) has_data=true ;; esac
+          has_ops=false
+          case ",${profiles}," in *,ops,*) has_ops=true ;; esac
+
+          # Compose interpolates every service, even ones whose profile is off,
+          # so the compose files use ${VAR:-}. Required values are enforced
+          # here, only for the profiles that are actually enabled.
+          require() {
+            local missing=0 v
+            for v in "$@"; do
+              grep -q "^${v}='..*'$" .env || { echo "::error::profile needs ${v} (set the GitHub secret/variable)"; missing=1; }
+            done
+            return "$missing"
+          }
+          if $has_data; then require PG_SUPERUSER_PASSWORD PG_RO_PASSWORD REDIS_ADMIN_PASSWORD PROJECTS; fi
+          if $has_ops; then require GRAFANA_PROM_URL GRAFANA_PROM_USER GRAFANA_LOKI_URL GRAFANA_LOKI_USER GRAFANA_CLOUD_TOKEN; fi
 
           # Redis ACL file must exist before Redis starts for the first time.
           if $has_data; then ./redis/render-acl.sh; fi
