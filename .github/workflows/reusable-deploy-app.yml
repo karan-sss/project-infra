@@ -141,6 +141,9 @@ jobs:
 
       - name: Scan image (fail on fixable CRITICAL)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          # The image is arm64-only; Trivy otherwise looks for linux/amd64.
+          TRIVY_PLATFORM: linux/arm64
         with:
           image-ref: ${{ steps.ref.outputs.image }}
           severity: CRITICAL
