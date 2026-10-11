@@ -87,15 +87,15 @@ The user is self-hosting a portfolio and a few small side projects on a single H
    - `terraform`: scopes `policy_file`, `auth_keys`, `devices:core`.
    - `github-ci`: scope `auth_keys`, tag `tag:ci`.
    - Enable MagicDNS. **Warning:** Terraform will own the whole tailnet ACL, so the ACL in Task 3 includes the user's own devices.
-5. **Grafana Cloud:** create a free stack. Note the Prometheus remote-write URL + user ID, the Loki URL + user ID, and an access-policy token with `metrics:write` and `logs:write`.
+5. **Grafana Cloud:** create a free stack. Note the Prometheus remote-write URL + user ID, the Loki URL + user ID, and an access-policy token with `metrics:write` and `logs:write`. Also create a **service account** (role: Editor, or a custom role with Alerting write + folder create) and a token for it, for Terraform-managed alert rules.
 6. **healthchecks.io:** create a free account with checks `backup-nightly` (period 1 day, grace 2 h), `server-heartbeat` (period 5 min, grace 5 min) and `restore-drill` (period 31 days). Wire the email/Telegram integration.
 7. **Keys and passwords (WSL):**
    - `ssh-keygen -t ed25519 -f ~/.ssh/project_infra_ci -C github-actions-deployer -N ""`
    - A restic repo password (store it in a password manager too, because **losing it makes the backups unusable**).
    - An admin console password hash: `openssl passwd -6`.
 8. **GitHub:** install `gh` and run `gh auth login`. Install the **Renovate** GitHub App on the repo after Task 1.
-9. **GitHub secrets:** `HCLOUD_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_DNS_TOKEN`, `R2_STATE_ACCESS_KEY_ID`, `R2_STATE_SECRET_ACCESS_KEY`, `R2_BACKUP_ACCESS_KEY_ID`, `R2_BACKUP_SECRET_ACCESS_KEY`, `RESTIC_PASSWORD`, `TS_TF_OAUTH_CLIENT_ID`, `TS_TF_OAUTH_SECRET`, `TS_CI_OAUTH_CLIENT_ID`, `TS_CI_OAUTH_SECRET`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_KNOWN_HOSTS` (set after first boot), `ADMIN_PASSWORD_HASH`, `GRAFANA_CLOUD_TOKEN`, `HC_PING_KEY`.
-10. **GitHub variables:** `DOMAIN`, `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `ADMIN_EMAIL`, `GRAFANA_PROM_URL`, `GRAFANA_PROM_USER`, `GRAFANA_LOKI_URL`, `GRAFANA_LOKI_USER`, `SERVER_TS_HOST` (default `core-01`).
+9. **GitHub secrets:** `HCLOUD_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_DNS_TOKEN`, `R2_STATE_ACCESS_KEY_ID`, `R2_STATE_SECRET_ACCESS_KEY`, `R2_BACKUP_ACCESS_KEY_ID`, `R2_BACKUP_SECRET_ACCESS_KEY`, `RESTIC_PASSWORD`, `TS_TF_OAUTH_CLIENT_ID`, `TS_TF_OAUTH_SECRET`, `TS_CI_OAUTH_CLIENT_ID`, `TS_CI_OAUTH_SECRET`, `DEPLOY_SSH_PRIVATE_KEY`, `DEPLOY_KNOWN_HOSTS` (set after first boot), `ADMIN_PASSWORD_HASH`, `GRAFANA_CLOUD_TOKEN`, `GRAFANA_SA_TOKEN`, `HC_PING_KEY`.
+10. **GitHub variables:** `DOMAIN`, `CF_ACCOUNT_ID`, `CF_ZONE_ID`, `ADMIN_EMAIL`, `GRAFANA_PROM_URL`, `GRAFANA_PROM_USER`, `GRAFANA_LOKI_URL`, `GRAFANA_LOKI_USER`, `GRAFANA_URL` (stack URL, `https://<stack>.grafana.net`), `SERVER_TS_HOST` (default `core-01`).
 11. **GitHub Environment** `production` with required reviewer = self and **deployment branches = `main` only**.
 12. **GitHub repo security settings:**
     - Settings → Code security: enable **Secret scanning** + **Push protection** + Dependabot alerts.
@@ -388,10 +388,8 @@ project-infra/
   - `prometheus.scrape` → `prometheus.remote_write` (Grafana Cloud URL + basic auth from env).
   - `discovery.docker` + `loki.source.docker` and `loki.source.journal` → `loki.write`.
   - Scrape interval 60 s.
-- In Grafana Cloud (manual, then export the JSON into `docs/grafana/` so it's versioned):
-  - Import the "Node Exporter Full" dashboard and a container dashboard.
-  - Alerts: memory above 85% for 10 min, swap used above 1 GB, disk above 80%, a container restarting more than 3 times in 15 min, and the Caddy target down.
-  - Use the email contact point.
+- In Grafana Cloud: import the "Node Exporter Full" dashboard and a container dashboard (manual).
+- Alerts as code in `terraform/grafana.tf` (grafana provider, applied by CI, covered by drift detection): memory above 85% for 10 min, swap used above 1 GiB, disk above 80%, a container restarting more than 3 times in 15 min, Caddy not running, and host metrics missing. Rules route to an email contact point (`ADMIN_EMAIL`) via `notification_settings`, so the notification policy tree stays untouched.
 - Verify that active series stay under 10k (Grafana Cloud → Usage).
 
 ### Task 15 — Status page (Upptime, separate repo)

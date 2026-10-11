@@ -15,6 +15,7 @@ patterns=(
   '-----BEGIN [A-Z ]*PRIVATE KEY'
   'hc-ping\.com/[A-Za-z0-9_-]{16,}'
   'AKIA[0-9A-Z]{16}'
+  'gl(sa|c)_[A-Za-z0-9_=-]{20,}'
 )
 
 found=0
@@ -28,7 +29,7 @@ done
 # Exact values of secret-looking env vars (never echoed).
 while IFS='=' read -r name _; do
   case "$name" in
-    *_TOKEN|*_SECRET|*_PASSWORD|*_KEY|*_HASH)
+    *_TOKEN|*_SECRET|*_PASSWORD|*_KEY|*_HASH|*_AUTH)
       value="${!name}"
       if [ "${#value}" -ge 8 ] && grep -Fq -- "$value" "$@"; then
         echo "::error::leak_check: value of \$$name found in output" >&2

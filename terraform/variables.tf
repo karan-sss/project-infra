@@ -88,3 +88,15 @@ variable "no_email" {
   type        = bool
   default     = true
 }
+
+variable "alert_email" {
+  description = "Where Grafana Cloud sends alert emails."
+  type        = string
+  sensitive   = true
+}
+
+variable "grafana_prometheus_uid" {
+  description = "UID of the Grafana Cloud stack's hosted Prometheus data source."
+  type        = string
+  default     = "grafanacloud-prom"
+}
