@@ -4,6 +4,8 @@
 [![terraform](https://github.com/karan-sss/project-infra/actions/workflows/terraform.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/terraform.yml)
 [![build-caddy](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml)
 [![deploy-platform](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml)
+[![drift](https://github.com/karan-sss/project-infra/actions/workflows/drift.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/drift.yml)
+[![restore-drill](https://github.com/karan-sss/project-infra/actions/workflows/restore-drill.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/restore-drill.yml)
 [![uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkaran-sss%2Fstatus%2FHEAD%2Fapi%2Fportfolio%2Fuptime.json)](https://status.karan-s.com)
 
 This repo is the production platform for **[karan-s.com](https://karan-s.com)**: my portfolio and a set of small side projects, self-hosted on a single ARM64 server for about **€7/month** (incl. VAT).
@@ -78,13 +80,14 @@ docs/PLAN.md        Full implementation plan and task list
 ## Roadmap
 
 - [x] Plan, ADRs and repository bootstrap
-- [ ] Terraform: Hetzner + Cloudflare + Tailscale, state in R2
-- [ ] cloud-init hardening (swap, Docker, Tailscale, metadata block)
-- [ ] CI: lint, plan/apply with cost and replacement guard
-- [ ] Signed multi-arch Caddy image + platform deploy
-- [ ] Shared Postgres/Redis, Sablier scale-to-zero, reusable app deploy
-- [ ] Backups + monthly restore drill
-- [ ] Grafana Cloud observability, Upptime status page, drift detection
+- [x] Terraform: Hetzner + Cloudflare + Tailscale, state in R2
+- [x] cloud-init hardening (swap, Docker, Tailscale, metadata block)
+- [x] CI: lint, plan/apply with cost and replacement guard
+- [x] Signed multi-arch Caddy image + platform deploy
+- [x] Shared Postgres/Redis, reusable app deploy
+- [ ] Sablier scale-to-zero for side projects (Sablier runs; no app routed through it yet)
+- [x] Backups + monthly restore drill
+- [x] Grafana Cloud observability and alerting, Upptime status page, drift detection
 
 ## Decisions
 
