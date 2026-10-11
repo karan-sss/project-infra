@@ -130,7 +130,7 @@ The monthly `restore-drill` workflow does the Postgres restore automatically. If
 |---|---|
 | Postgres project password | Update `PG_PASS_<NAME>` → re-run `deploy-platform` (the init script runs `ALTER ROLE`) → update the app's `APP_ENV` → redeploy the app |
 | Redis project password | Update `REDIS_PASS_<NAME>` → re-run `deploy-platform` (`render-acl.sh` + `ACL LOAD`) → update the app → redeploy |
-| Cloudflare / Hetzner / Tailscale OAuth tokens | Create the new token → update the GitHub secret → run `terraform` plan → revoke the old token |
+| Cloudflare / Hetzner / Tailscale OAuth / Grafana service-account tokens | Create the new token → update the GitHub secret → run `terraform` plan → revoke the old token |
 | Caddy DNS token | Update `CLOUDFLARE_DNS_TOKEN` → re-run `deploy-platform` |
 | CI deploy key | `ssh-keygen -t ed25519 -f ~/.ssh/project_infra_ci_new` → append the `.pub` to `/home/deployer/.ssh/authorized_keys` → update `DEPLOY_SSH_PRIVATE_KEY` → remove the old line. Update `deploy_ssh_pubkey` in `terraform.tfvars` for future rebuilds |
 | R2 backup keys | New R2 token → update `/opt/platform/backup/.env` via `deploy-platform` and the `R2_BACKUP_*` secrets → revoke the old one |
@@ -151,7 +151,7 @@ free -h && swapon --show
 ```
 
 - A container hitting its own `mem_limit` is killed (`OOMKilled=true`) and restarted. Raise its limit in its compose file only if the host has headroom.
-- Host-wide pressure: check swap usage (Grafana alert at more than 1 GB). Let idle apps sleep (Sablier) or lower Postgres `shared_buffers`.
+- Host-wide pressure: check swap usage (Grafana alert at more than 1 GiB). Let idle apps sleep (Sablier) or lower Postgres `shared_buffers`.
 - JVM apps: set `-XX:MaxRAMPercentage=75` so the heap respects `mem_limit`.
 
 ---

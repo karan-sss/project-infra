@@ -14,5 +14,9 @@ terraform {
       source  = "tailscale/tailscale"
       version = "~> 0.29"
     }
+    grafana = {
+      source  = "grafana/grafana"
+      version = "~> 4.49"
+    }
   }
 }
