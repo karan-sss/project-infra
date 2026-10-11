@@ -87,7 +87,7 @@ The user is self-hosting a portfolio and a few small side projects on a single H
    - `terraform`: scopes `policy_file`, `auth_keys`, `devices:core`.
    - `github-ci`: scope `auth_keys`, tag `tag:ci`.
    - Enable MagicDNS. **Warning:** Terraform will own the whole tailnet ACL, so the ACL in Task 3 includes the user's own devices.
-5. **Grafana Cloud:** create a free stack. Note the Prometheus remote-write URL + user ID, the Loki URL + user ID, and an access-policy token with `metrics:write` and `logs:write`. Also create a **service account** (role: Editor, or a custom role with Alerting write + folder create) and a token for it, for Terraform-managed alert rules.
+5. **Grafana Cloud:** create a free stack. Note the Prometheus remote-write URL + user ID, the Loki URL + user ID, and an access-policy token with `metrics:write` and `logs:write`. Also create a **service account** with the **Admin** role and a token for it, for Terraform-managed alert rules (Editor can create a folder but gets `403 folders:read` reading it back).
 6. **healthchecks.io:** create a free account with checks `backup-nightly` (period 1 day, grace 2 h), `server-heartbeat` (period 5 min, grace 5 min) and `restore-drill` (period 31 days). Wire the email/Telegram integration.
 7. **Keys and passwords (WSL):**
    - `ssh-keygen -t ed25519 -f ~/.ssh/project_infra_ci -C github-actions-deployer -N ""`
