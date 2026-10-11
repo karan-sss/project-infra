@@ -37,11 +37,15 @@
 	}
 	import security
 
+	# Apex: the portfolio app (karan-sss/er-portfolio), reached over the edge
+	# network (alias "portfolio", see that repo's deploy/compose.yaml).
 	@root host {$DOMAIN}
 	handle @root {
-		root * /srv/site
 		encode zstd gzip
-		file_server
+		reverse_proxy portfolio:8080 {
+			health_uri /healthz
+			health_interval 30s
+		}
 	}
 
 	# www is served by the wildcard DNS record; send it to the apex.
