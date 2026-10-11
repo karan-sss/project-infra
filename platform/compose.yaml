@@ -18,6 +18,11 @@ services:
     # the server always runs a verified, digest-pinned image.
     image: ${CADDY_IMAGE:-ghcr.io/karan-sss/caddy-cloudflare:latest}
     restart: unless-stopped
+    # The Caddyfile is a single-file bind mount: replacing it on the host is
+    # invisible to a running container. deploy-platform sets CADDYFILE_SHA, so
+    # any Caddyfile change alters this label and Compose recreates Caddy.
+    labels:
+      platform.caddyfile-sha: ${CADDYFILE_SHA:-unset}
     ports:
       - "80:80"
       - "443:443"

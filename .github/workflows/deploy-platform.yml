@@ -193,6 +193,9 @@ jobs:
           # Redis runs as the deployer user so users.acl can stay mode 600.
           DEPLOYER_UID=$(id -u); DEPLOYER_GID=$(id -g); export DEPLOYER_UID DEPLOYER_GID
 
+          # Recreate Caddy whenever its config changes (see compose.yaml label).
+          CADDYFILE_SHA=$(sha256sum Caddyfile | cut -c1-16); export CADDYFILE_SHA
+
           docker compose pull --quiet
           docker compose up -d --remove-orphans --wait --wait-timeout 180
 
