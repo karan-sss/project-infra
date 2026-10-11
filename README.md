@@ -4,6 +4,7 @@
 [![terraform](https://github.com/karan-sss/project-infra/actions/workflows/terraform.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/terraform.yml)
 [![build-caddy](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/build-caddy.yml)
 [![deploy-platform](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml/badge.svg)](https://github.com/karan-sss/project-infra/actions/workflows/deploy-platform.yml)
+[![uptime](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fkaran-sss%2Fstatus%2FHEAD%2Fapi%2Fportfolio%2Fuptime.json)](https://status.karan-s.com)
 
 This repo is the production platform for **[karan-s.com](https://karan-s.com)**: my portfolio and a set of small side projects, self-hosted on a single ARM64 server for about **€7/month** (incl. VAT).
 
