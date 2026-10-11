@@ -61,7 +61,7 @@ locals {
 }
 
 data "grafana_data_source" "prometheus" {
-  uid = var.grafana_prometheus_uid
+  name = var.grafana_prometheus_name
 }
 
 resource "grafana_folder" "platform" {

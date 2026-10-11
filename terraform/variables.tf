@@ -95,8 +95,7 @@ variable "alert_email" {
   sensitive   = true
 }
 
-variable "grafana_prometheus_uid" {
-  description = "UID of the Grafana Cloud stack's hosted Prometheus data source."
+variable "grafana_prometheus_name" {
+  description = "Name of the Grafana Cloud stack's hosted Prometheus data source (grafanacloud-<stack>-prom)."
   type        = string
-  default     = "grafanacloud-prom"
 }
