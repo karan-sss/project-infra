@@ -207,7 +207,15 @@ jobs:
         env:
           CADDY_IMAGE: ${{ steps.caddy.outputs.ref }}
         run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 5 --retry-delay 5 --retry-all-errors "https://${DOMAIN}")
+          # On a fresh server Caddy needs 1-2 min to get its wildcard cert via
+          # DNS-01; until then Cloudflare answers 52x. Retry for up to 4 min.
+          code=000
+          for _ in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "https://${DOMAIN}" || true)
+            [ "$code" = 200 ] && break
+            echo "https://${DOMAIN} -> HTTP ${code}, retrying in 10s"
+            sleep 10
+          done
           echo "https://${DOMAIN} -> HTTP ${code}"
           {
             echo "## deploy-platform"
